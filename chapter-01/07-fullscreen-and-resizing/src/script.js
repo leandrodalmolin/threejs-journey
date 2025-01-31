@@ -22,9 +22,47 @@ scene.add(mesh);
  * Sizes
  */
 const sizes = {
-  width: 800,
-  height: 600,
+  width: window.innerWidth,
+  height: window.innerHeight,
 };
+
+window.addEventListener("resize", () => {
+  // Update sizes
+  sizes.width = window.innerWidth;
+  sizes.height = window.innerHeight;
+
+  // Update camera
+  camera.aspect = sizes.width / sizes.height;
+  camera.updateProjectionMatrix();
+
+  // Update renderer
+  renderer.setSize(sizes.width, sizes.height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // when changing screens
+});
+
+// Full screen mode
+// Safari supports the fullscreen API without prefixes now.
+// Yet, it’s considered good practice to use the prefixes for two reasons:
+// - Some users use old versions of Safari
+// - The fullscreen API is not supported on iPhone, but it’s supported on iPad, only with prefixes
+window.addEventListener("dblclick", () => {
+  const fullscreenElement =
+    document.fullscreenElement || document.webkitFullscreenElement;
+
+  if (!fullscreenElement) {
+    if (canvas.requestFullscreen) {
+      canvas.requestFullscreen();
+    } else if (canvas.webkitRequestFullscreen) {
+      canvas.webkitRequestFullscreen();
+    }
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    }
+  }
+});
 
 /**
  * Camera
@@ -50,6 +88,9 @@ const renderer = new THREE.WebGLRenderer({
   canvas: canvas,
 });
 renderer.setSize(sizes.width, sizes.height);
+// Limit devicePixelRatio to 2 to prevent
+// performance issues on high pixel ratio devices
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 /**
  * Animate
