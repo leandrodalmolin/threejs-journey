@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import GUI from "lil-gui";
+import gsap from "gsap";
 
 /**
  * Debug
@@ -10,7 +11,10 @@ const parameters = {
   materialColor: "#ffeded",
 };
 
-gui.addColor(parameters, "materialColor");
+gui.addColor(parameters, "materialColor").onChange(() => {
+  material.color.set(parameters.materialColor);
+  particlesMaterial.color.set(parameters.materialColor);
+});
 
 /**
  * Base
@@ -22,13 +26,78 @@ const canvas = document.querySelector("canvas.webgl");
 const scene = new THREE.Scene();
 
 /**
- * Test cube
+ * Objects
  */
-const cube = new THREE.Mesh(
-  new THREE.BoxGeometry(1, 1, 1),
-  new THREE.MeshBasicMaterial({ color: "#ff0000" })
+// Texture
+const textureLoader = new THREE.TextureLoader();
+const gradientTexture = textureLoader.load("textures/gradients/3.jpg");
+gradientTexture.magFilter = THREE.NearestFilter;
+
+// Material
+const material = new THREE.MeshToonMaterial({
+  color: parameters.materialColor,
+  gradientMap: gradientTexture,
+});
+
+// Meshes
+const objectsDistance = 4;
+const mesh1 = new THREE.Mesh(new THREE.TorusGeometry(1, 0.4, 16, 60), material);
+const mesh2 = new THREE.Mesh(new THREE.ConeGeometry(1, 2, 32), material);
+const mesh3 = new THREE.Mesh(
+  new THREE.TorusKnotGeometry(0.8, 0.35, 100, 16),
+  material
 );
-scene.add(cube);
+
+mesh1.position.y = -objectsDistance * 0;
+mesh2.position.y = -objectsDistance * 1;
+mesh3.position.y = -objectsDistance * 2;
+
+mesh1.position.x = 2;
+mesh2.position.x = -2;
+mesh3.position.x = 2;
+
+scene.add(mesh1, mesh2, mesh3);
+
+const sectionMeshes = [mesh1, mesh2, mesh3];
+
+/**
+ * Particles
+ */
+// Geometry
+const particlesCount = 200;
+const positions = new Float32Array(particlesCount * 3);
+
+for (let i = 0; i < particlesCount; i++) {
+  positions[i * 3] = (Math.random() - 0.5) * 10;
+  positions[i * 3 + 1] =
+    objectsDistance * 0.5 -
+    Math.random() * objectsDistance * sectionMeshes.length;
+  positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
+}
+
+const particlesGeometry = new THREE.BufferGeometry();
+particlesGeometry.setAttribute(
+  "position",
+  new THREE.BufferAttribute(positions, 3)
+);
+
+// Material
+const particlesMaterial = new THREE.PointsMaterial({
+  color: parameters.color,
+  sizeAttenuation: true,
+  size: 0.03,
+});
+
+// Particles
+const particles = new THREE.Points(particlesGeometry, particlesMaterial);
+scene.add(particles);
+
+/**
+ * Lights
+ */
+const directionalLight = new THREE.DirectionalLight("#ffffff", 3);
+directionalLight.position.set(1, 1, 0);
+scene.add(directionalLight);
 
 /**
  * Sizes
@@ -55,6 +124,10 @@ window.addEventListener("resize", () => {
 /**
  * Camera
  */
+// Group
+const cameraGroup = new THREE.Group();
+scene.add(cameraGroup);
+
 // Base camera
 const camera = new THREE.PerspectiveCamera(
   35,
@@ -63,24 +136,96 @@ const camera = new THREE.PerspectiveCamera(
   100
 );
 camera.position.z = 6;
-scene.add(camera);
+cameraGroup.add(camera);
 
 /**
  * Renderer
  */
 const renderer = new THREE.WebGLRenderer({
   canvas: canvas,
+  alpha: true,
 });
 renderer.setSize(sizes.width, sizes.height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 /**
+ * Scroll
+ */
+let scrollY = window.scrollY;
+let currentSection = 0;
+window.addEventListener("scroll", () => {
+  scrollY = window.scrollY;
+  const newSection = Math.round(scrollY / sizes.height);
+
+  if (newSection !== currentSection) {
+    currentSection = newSection;
+
+    gsap.to(sectionMeshes[currentSection].rotation, {
+      duration: 1.5,
+      ease: "power2.inOut",
+      x: "+=6",
+      y: "+=3",
+      z: "+=1.5",
+    });
+  }
+});
+
+/**
+ * Cursor
+ */
+const cursor = {};
+cursor.x = 0;
+cursor.y = 0;
+
+window.addEventListener("mousemove", (event) => {
+  // Range from 0 to 1 then decrease 0.5 so it ranges from -0.5 to 0.5
+  // where 0 is the centre of the viewport
+  cursor.x = event.clientX / sizes.width - 0.5;
+  cursor.y = event.clientY / sizes.height - 0.5;
+});
+
+/**
  * Animate
  */
 const clock = new THREE.Clock();
+let previousTime = 0;
 
 const tick = () => {
   const elapsedTime = clock.getElapsedTime();
+  const deltaTime = elapsedTime - previousTime;
+  previousTime = elapsedTime;
+
+  // Animate camera
+  // - scrollY / sizes.height gives you how many “full screen sections” the user has scrolled past. For example:
+  //   - If the user hasn’t scrolled: scrollY = 0 → result = 0
+  //   - If they’ve scrolled one full screen height: scrollY = sizes.height → result = 1
+  //   - Two screen heights: → result = 2, etc.
+  // - Multiply by objectsDistance
+  //   - objectsDistance = how far apart your 3D objects are vertically.
+  //   - You multiply by it to match scroll distance with object positions,
+  //     so every full screen scroll aligns the camera with the next 3D object.
+  //   - It makes scrolling feel natural and aligned with the layout of your 3D scene.
+  camera.position.y = (-scrollY / sizes.height) * objectsDistance;
+
+  // Parallax
+  const parallaxX = cursor.x * 0.5;
+  const parallaxY = -cursor.y * 0.5;
+  // Multiply by delta so animation has same speed on screens with different frequencies
+  cameraGroup.position.x +=
+    (parallaxX - cameraGroup.position.x) * 5 * deltaTime;
+  cameraGroup.position.y +=
+    (parallaxY - cameraGroup.position.y) * 5 * deltaTime;
+
+  // Animate meshes
+  for (const mesh of sectionMeshes) {
+    // Code before adding the spin animation on active sections
+    // mesh.rotation.x = elapsedTime * 0.1;
+    // mesh.rotation.y = elapsedTime * 0.12;
+
+    // Code after adding the spin animation on active sections
+    mesh.rotation.x += deltaTime * 0.1;
+    mesh.rotation.y += deltaTime * 0.12;
+  }
 
   // Render
   renderer.render(scene, camera);
